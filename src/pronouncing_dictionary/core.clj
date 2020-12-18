@@ -1,56 +1,69 @@
-(ns pronouncing-dictionary.core)
+(ns pronouncing-dictionary.core
+  (:require
+    [clojure.core.logic :as l]
+    [pronouncing-dictionary.db :as relations :refer [db]]
+    [clojure.core.logic.pldb :as pldb]))
 
-(defn foo
-  "I don't do a whole lot."
-  [x]
-  (println x "Hello, World!"))
+(defn n-similar? [n word1 word2]
+  (-> (count (clojure.set/intersection (into #{}
+                                             (map :sound (:phonemes word1)))
+                                       (into #{}
+                                             (map :sound (:phonemes word2)))))
+      (>= n)))
+
+(defn word-tailo [phonemes word-tail]
+  (l/conde
+    [(l/fresh [head]
+       (l/firsto phonemes head)
+       (l/featurec head {:stress 1})
+       (l/== phonemes word-tail))]
+    [(l/fresh [head tail]
+       (l/conso head tail phonemes)
+       (word-tailo tail word-tail))]))
+
+(l/defne word-tailo [phonemes word-tail]
+         ([[head . _] word-tail]
+          (l/featurec head {:stress 1})
+          (l/== phonemes word-tail))
+         ([[head . tail] word-tail]
+          (word-tailo tail word-tail)))
 
 
-(defn parse-pronunciation [pronunciation]
-  (map (fn [token]
-         (let [[_ vowel stress] (re-matches #"(.*)([0-9]+)" token)]
-           (merge {:sound (or vowel token)
-                   :type (if vowel :vowel :consonant)}
-                  (when stress {:stress (Integer/parseInt stress)}))))
-       (clojure.string/split pronunciation #" ")))
-
-(defn word-tail [phonemes]
-  (drop-while (comp (partial not= 1) :stress) phonemes))
+(defn rhymeso [w1 w2]
+  (l/fresh [p1 p2 wt1 wt2]
+    (relations/sounds-like w1 p1)
+    (relations/sounds-like w2 p2)
+    (word-tailo p1 wt1)
+    (word-tailo p2 wt2)
+    (l/== wt1 wt2)))
 
 (comment
 
-  (drop-while (comp (partial not= 1) :stress) (second (nth data 1234)))
-  (word-tail (second (nth data 1234)))
+  (pldb/with-db
+    db
+    (l/run* [q]
+           (rhymeso "SALVATORE" q)))
 
-  (def lines (filter (complement #(clojure.string/starts-with? % ";;;")) (clojure.string/split-lines (slurp "cmudict/cmudict-0.7b"))))
+  (pldb/with-db
+    db
+    (l/run 1 [q]
+           (l/fresh [phonemes]
+             (relations/sounds-like "DANE" phonemes)
+             (l/== q phonemes)))))
 
-  (def data (map (fn [line] (let [[word pronunciation] (clojure.string/split line #"  ")]
-                     [word (parse-pronunciation pronunciation)]))
-        lines))
+(comment
+  ;; fun stuff to understand
 
-  (nth data 1234)
+  (l/defne factorialo [n m]
+           ([0 1])
+           ([n m]
+            (l/fresh [n1 m1]
+              (l/project [n]
+                         (l/== n1 (- n 1)))
+              (factorialo n1 m1)
+              (l/project [n m1]
+                         (l/== m (* n m1))))))
 
-  (def rhymes-with-adoption (filter (comp
-             (partial = (word-tail (second (nth data 1234))))
-             word-tail
-             second) data))
-
-  (def rhymes-with-abusing (filter (comp
-                                      (partial = (word-tail (second (nth data 432))))
-                                      word-tail
-                                      second) data))
-
-  (map first rhymes-with-abusing)
-
-
-  (def rhymes-with-abadie (filter (comp
-                                    (partial = (word-tail (second (nth data 43))))
-                                    word-tail
-                                    second) data))
-
-  (nth data 43)
-
-  "([0-9]+)"
-  (re-matches #"(.*)([0-9]+)" "AA0")
-
+  (l/run 1 [q]
+         (factorialo 2 q))
   )
